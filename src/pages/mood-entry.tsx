@@ -4,7 +4,8 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Sparkles as SparklesIcon, Brain as BrainIcon, Scan as ScanIcon, Mic, Square, RefreshCw, RotateCcw } from 'lucide-react'
-import { analyzeEmotion, getInsightForEmotion, type EmotionAnalysisResult, type Emotion } from '@/lib/emotion-analysis'
+import { type EmotionAnalysisResult, type Emotion } from '@/lib/emotion-analysis'
+import { analyzeEmotionWithGemini, getQuickInsightFromGemini } from '@/lib/gemini'
 import { addMoodEntry } from '@/lib/storage'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -153,14 +154,23 @@ export function MoodEntry() {
     setResult(null)
     setAnalysisStep(0)
 
-    for (let i = 0; i < analysisSteps.length; i++) {
-      setAnalysisStep(i)
-      await new Promise(r => setTimeout(r, overrideEmotion ? 300 : 600))
-    }
+    // Step through animation while Gemini processes in background
+    const stepPromise = (async () => {
+      for (let i = 0; i < analysisSteps.length; i++) {
+        setAnalysisStep(i)
+        await new Promise(r => setTimeout(r, overrideEmotion ? 350 : 650))
+      }
+    })()
 
-    const analysisResult: EmotionAnalysisResult = overrideEmotion
-      ? { emotion: overrideEmotion, confidence: 78 + Math.floor(Math.random() * 15), insight: getInsightForEmotion(overrideEmotion) }
-      : analyzeEmotion(text)
+    const analysisPromise: Promise<EmotionAnalysisResult> = overrideEmotion
+      ? getQuickInsightFromGemini(overrideEmotion).then(insight => ({
+          emotion: overrideEmotion,
+          confidence: 78 + Math.floor(Math.random() * 15),
+          insight,
+        }))
+      : analyzeEmotionWithGemini(text)
+
+    const [analysisResult] = await Promise.all([analysisPromise, stepPromise])
 
     addMoodEntry({
       id: crypto.randomUUID(),

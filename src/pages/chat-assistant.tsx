@@ -8,26 +8,12 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { Send as SendIcon, Sparkles as SparklesIcon, User as UserIcon, LogOut as EndIcon, Plus as PlusIcon } from 'lucide-react'
-import { getChatbotResponse, analyzeEmotion } from '@/lib/emotion-analysis'
 import { saveChatSession, type ChatSession, type ChatMessage } from '@/lib/storage'
+import { getChatResponseFromGemini, generateChatSessionSummaryWithGemini } from '@/lib/gemini'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 
 const WELCOME = "Hello! I'm your emotional intelligence companion. I'm here to listen and support you. How are you feeling today?"
-
-function generateChatSummary(messages: ChatMessage[]): { summary: string; dominant_emotion: string } {
-  const userText = messages.filter(m => m.role === 'user').map(m => m.content).join(' ')
-  const result = analyzeEmotion(userText || 'neutral')
-  const emojis: Record<string, string> = {
-    happy: '😊', sad: '😢', anxious: '😰', calm: '😌',
-    excited: '🤩', tired: '😴', stressed: '😫', neutral: '😐',
-  }
-  const userCount = messages.filter(m => m.role === 'user').length
-  const summary =
-    `${emojis[result.emotion] || '💬'} Chat session with ${userCount} message${userCount !== 1 ? 's' : ''}. ` +
-    `Dominant emotion: ${result.emotion}. ${result.insight}`
-  return { summary, dominant_emotion: result.emotion }
-}
 
 // ── Inner component — remounted on "New Chat" via key ────────────────────────
 
@@ -62,23 +48,32 @@ function ChatInner({ onNewChat }: { onNewChat: () => void }) {
     if (!inputValue.trim() || ended) return
 
     const userMsg: ChatMessage = { role: 'user', content: inputValue, created_at: new Date().toISOString() }
-    setMessages(prev => [...prev, userMsg])
+    const currentMessages = [...messages, userMsg]
+    setMessages(currentMessages)
     setInputValue('')
     setIsTyping(true)
 
-    await new Promise(r => setTimeout(r, 800 + Math.random() * 600))
+    // Pass full conversation history to Gemini for contextual responses
+    const history = messages.map(m => ({ role: m.role, content: m.content }))
+    const responseText = await getChatResponseFromGemini(history, inputValue)
 
     const assistantMsg: ChatMessage = {
       role: 'assistant',
-      content: getChatbotResponse(inputValue),
+      content: responseText,
       created_at: new Date().toISOString(),
     }
     setMessages(prev => [...prev, assistantMsg])
     setIsTyping(false)
   }
 
-  const handleEndChat = () => {
-    const { summary, dominant_emotion } = generateChatSummary(messages)
+  const handleEndChat = async () => {
+    setEnded(true)
+    toast.success('Generating summary…')
+
+    const { summary, dominant_emotion } = await generateChatSessionSummaryWithGemini(
+      messages.map(m => ({ role: m.role, content: m.content }))
+    )
+
     const session: ChatSession = {
       id: sessionId,
       messages,
@@ -88,8 +83,7 @@ function ChatInner({ onNewChat }: { onNewChat: () => void }) {
       ended_at: new Date().toISOString(),
     }
     saveChatSession(session)
-    setEnded(true)
-    toast.success('Chat ended — summary saved to Summary tab')
+    toast.success('Chat summary saved to Summary tab')
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

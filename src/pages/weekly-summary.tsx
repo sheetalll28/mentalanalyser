@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -18,6 +18,8 @@ import {
   type LocalMoodEntry, type ChatSession, type LocalDailyFactor,
 } from '@/lib/storage'
 import { generateSummaryFromEntries } from '@/lib/summarization'
+import { generateNarrativeWithGemini } from '@/lib/gemini'
+import { Skeleton } from '@/components/ui/skeleton'
 
 const emotionEmojis: Record<string, string> = {
   happy: '😊', sad: '😢', anxious: '😰', calm: '😌',
@@ -132,11 +134,28 @@ const ALL_EMOTIONS = ['happy', 'calm', 'excited', 'neutral', 'anxious', 'tired',
 
 function SummaryPanel({ entries, label, onDeleted }: { entries: LocalMoodEntry[]; label: string; onDeleted: () => void }) {
   const [filterEmotion, setFilterEmotion] = useState('all')
+  const [aiNarrative, setAiNarrative] = useState<string | null>(null)
+  const [narrativeLoading, setNarrativeLoading] = useState(false)
+  const prevEntriesKey = useRef('')
 
   const filtered = useMemo(() =>
     filterEmotion === 'all' ? entries : entries.filter(e => e.emotion === filterEmotion),
     [entries, filterEmotion]
   )
+
+  useEffect(() => {
+    if (entries.length === 0) return
+    const key = entries.map(e => e.id).join(',')
+    if (key === prevEntriesKey.current) return
+    prevEntriesKey.current = key
+
+    setNarrativeLoading(true)
+    setAiNarrative(null)
+    const period = label === 'Day' ? 'daily' : label === 'Week' ? 'weekly' : 'monthly'
+    generateNarrativeWithGemini(entries as any, period)
+      .then(n => { setAiNarrative(n); setNarrativeLoading(false) })
+      .catch(() => setNarrativeLoading(false))
+  }, [entries, label])
 
   if (entries.length === 0) {
     return (
@@ -175,8 +194,19 @@ function SummaryPanel({ entries, label, onDeleted }: { entries: LocalMoodEntry[]
       </div>
 
       <Card className="border-primary/20 bg-primary/5">
-        <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-base"><SparklesIcon className="size-4 text-primary" />{label} in Perspective</CardTitle></CardHeader>
-        <CardContent><p className="text-sm leading-relaxed text-muted-foreground">{summary.narrative}</p></CardContent>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <SparklesIcon className="size-4 text-primary" />
+            {label} in Perspective
+            {narrativeLoading && <span className="ml-auto text-xs font-normal text-muted-foreground animate-pulse">AI generating…</span>}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {narrativeLoading
+            ? <div className="space-y-2"><Skeleton className="h-4 w-full" /><Skeleton className="h-4 w-4/5" /><Skeleton className="h-4 w-3/5" /></div>
+            : <p className="text-sm leading-relaxed text-muted-foreground">{aiNarrative || summary.narrative}</p>
+          }
+        </CardContent>
       </Card>
 
       {summary.insights.length > 0 && (
