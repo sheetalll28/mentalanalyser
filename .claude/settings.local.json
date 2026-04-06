@@ -4,7 +4,10 @@
       "Bash(npm run build:*)",
       "Bash(git init:*)",
       "Bash(git add:*)",
-      "Bash(git commit -m ':*)"
+      "Bash(git commit -m ':*)",
+      "Bash(git -C /Users/keshav/Downloads/project branch -M main)",
+      "Bash(git -C /Users/keshav/Downloads/project remote add origin git@github.com:keshav23456/menta.git)",
+      "Bash(git -C /Users/keshav/Downloads/project push -u origin main)"
     ],
     "deny": [],
     "ask": []
