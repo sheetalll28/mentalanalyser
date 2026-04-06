@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -126,9 +126,18 @@ function FactorsHistoryPanel({ factors }: { factors: LocalDailyFactor[] }) {
   )
 }
 
+const ALL_EMOTIONS = ['happy', 'calm', 'excited', 'neutral', 'anxious', 'tired', 'stressed', 'sad']
+
 // ── Summary Panel ─────────────────────────────────────────────────────────────
 
 function SummaryPanel({ entries, label, onDeleted }: { entries: LocalMoodEntry[]; label: string; onDeleted: () => void }) {
+  const [filterEmotion, setFilterEmotion] = useState('all')
+
+  const filtered = useMemo(() =>
+    filterEmotion === 'all' ? entries : entries.filter(e => e.emotion === filterEmotion),
+    [entries, filterEmotion]
+  )
+
   if (entries.length === 0) {
     return (
       <Card>
@@ -201,10 +210,27 @@ function SummaryPanel({ entries, label, onDeleted }: { entries: LocalMoodEntry[]
       </Card>
 
       <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-sm">Entries</CardTitle></CardHeader>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="text-sm">Entries</CardTitle>
+            <select
+              value={filterEmotion}
+              onChange={e => setFilterEmotion(e.target.value)}
+              className="rounded-md border bg-background px-2 py-1 text-xs text-foreground"
+            >
+              <option value="all">All emotions</option>
+              {ALL_EMOTIONS.map(em => (
+                <option key={em} value={em}>{emotionEmojis[em]} {em}</option>
+              ))}
+            </select>
+          </div>
+        </CardHeader>
         <CardContent>
+          {filtered.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">No entries match this filter.</p>
+          ) : (
           <div className="space-y-2">
-            {entries.slice().reverse().slice(0, 10).map(entry => (
+            {filtered.slice().reverse().slice(0, 10).map(entry => (
               <div key={entry.id} className="flex items-start gap-3 rounded-lg border p-3">
                 <span className="text-xl">{emotionEmojis[entry.emotion]}</span>
                 <div className="flex-1 min-w-0">
@@ -236,6 +262,7 @@ function SummaryPanel({ entries, label, onDeleted }: { entries: LocalMoodEntry[]
               </div>
             ))}
           </div>
+          )}
         </CardContent>
       </Card>
     </div>

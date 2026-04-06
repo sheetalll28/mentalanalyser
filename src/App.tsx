@@ -6,7 +6,9 @@ import { DailyFactors } from '@/pages/daily-factors'
 import { WeeklySummary } from '@/pages/weekly-summary'
 import { Navigation } from '@/components/navigation'
 import { ModeToggle } from '@/components/mode-toggle'
+import { Onboarding } from '@/components/onboarding'
 import { Sparkles as SparklesIcon } from 'lucide-react'
+import { isOnboarded } from '@/lib/storage'
 
 type Page = 'mood' | 'chat' | 'dashboard' | 'factors' | 'summary'
 
@@ -14,6 +16,7 @@ export function App() {
   const [currentPage, setCurrentPage] = useState<Page>('mood')
   const [isTransitioning, setIsTransitioning] = useState(false)
   const [summaryKey, setSummaryKey] = useState(0)
+  const [showOnboarding, setShowOnboarding] = useState(() => !isOnboarded())
 
   const handlePageChange = (page: Page) => {
     setIsTransitioning(true)
@@ -49,6 +52,7 @@ export function App() {
       </main>
 
       <Navigation currentPage={currentPage} onPageChange={handlePageChange} />
+      {showOnboarding && <Onboarding onDone={() => setShowOnboarding(false)} />}
     </div>
   )
 }

@@ -14,7 +14,8 @@ import {
 } from 'lucide-react'
 import {
   getTodayEntries, getWeekEntries, getMonthEntries,
-  getEntriesForMonth, getStreak, type LocalMoodEntry,
+  getEntriesForMonth, getStreak, getRecentFactors,
+  type LocalMoodEntry, type LocalDailyFactor,
 } from '@/lib/storage'
 
 const emotionColors: Record<string, string> = {
@@ -291,6 +292,159 @@ function StatsView({ stats, groupBy }: { stats: PeriodStats; groupBy: 'hour' | '
   )
 }
 
+// ── Insights Section ──────────────────────────────────────────────────────────
+
+function avg(arr: number[]) {
+  return arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null
+}
+
+function InsightsSection({ entries, factors }: { entries: LocalMoodEntry[]; factors: LocalDailyFactor[] }) {
+  if (entries.length < 5) return null
+
+  // Time of day buckets
+  const buckets: Record<string, { label: string; emoji: string; scores: number[] }> = {
+    morning:   { label: 'Morning',   emoji: '🌅', scores: [] },
+    afternoon: { label: 'Afternoon', emoji: '☀️', scores: [] },
+    evening:   { label: 'Evening',   emoji: '🌆', scores: [] },
+    night:     { label: 'Night',     emoji: '🌙', scores: [] },
+  }
+
+  entries.forEach(e => {
+    const h = new Date(e.created_at).getHours()
+    if (h >= 5 && h < 12)  buckets.morning.scores.push(e.confidence)
+    else if (h >= 12 && h < 17) buckets.afternoon.scores.push(e.confidence)
+    else if (h >= 17 && h < 21) buckets.evening.scores.push(e.confidence)
+    else                         buckets.night.scores.push(e.confidence)
+  })
+
+  const timeStats = Object.values(buckets)
+    .map(b => ({ ...b, avg: avg(b.scores), count: b.scores.length }))
+    .filter(b => b.count > 0)
+    .sort((a, b) => (b.avg ?? 0) - (a.avg ?? 0))
+
+  const bestTime = timeStats[0]
+  const worstTime = timeStats[timeStats.length - 1]
+
+  // Correlation with factors
+  const exerciseDates = new Set(factors.filter(f => f.exercise).map(f => f.date))
+  const noExerciseDates = new Set(factors.filter(f => !f.exercise).map(f => f.date))
+  const goodSleepDates = new Set(factors.filter(f => f.sleep_hours >= 7).map(f => f.date))
+  const poorSleepDates = new Set(factors.filter(f => f.sleep_hours < 7).map(f => f.date))
+
+  const scoreOn = (dates: Set<string>) =>
+    avg(entries.filter(e => dates.has(new Date(e.created_at).toISOString().split('T')[0])).map(e => e.confidence))
+
+  const exWith = scoreOn(exerciseDates)
+  const exWithout = scoreOn(noExerciseDates)
+  const sleepGood = scoreOn(goodSleepDates)
+  const sleepPoor = scoreOn(poorSleepDates)
+
+  const hasCorrelation = factors.length >= 3 && (exWith !== null || sleepGood !== null)
+
+  return (
+    <div className="space-y-3">
+      <h2 className="text-lg font-semibold">Insights</h2>
+
+      {/* Time of day */}
+      {timeStats.length >= 2 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <SparklesIcon className="size-4 text-primary" />
+              Best Time of Day
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              {bestTime && (
+                <div className="rounded-lg bg-green-500/10 p-3 text-center">
+                  <p className="text-xl">{bestTime.emoji}</p>
+                  <p className="text-sm font-semibold">{bestTime.label}</p>
+                  <p className="text-xs text-muted-foreground">{bestTime.avg}% avg mood</p>
+                  <p className="text-[10px] text-green-600 dark:text-green-400 font-medium">Best</p>
+                </div>
+              )}
+              {worstTime && worstTime.label !== bestTime?.label && (
+                <div className="rounded-lg bg-muted/50 p-3 text-center">
+                  <p className="text-xl">{worstTime.emoji}</p>
+                  <p className="text-sm font-semibold">{worstTime.label}</p>
+                  <p className="text-xs text-muted-foreground">{worstTime.avg}% avg mood</p>
+                  <p className="text-[10px] text-muted-foreground font-medium">Lowest</p>
+                </div>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              {timeStats.map(t => (
+                <div key={t.label} className="flex items-center gap-2 text-xs">
+                  <span className="w-16 text-muted-foreground">{t.emoji} {t.label}</span>
+                  <div className="flex-1 rounded-full bg-muted h-2">
+                    <div className="h-2 rounded-full bg-primary" style={{ width: `${t.avg}%` }} />
+                  </div>
+                  <span className="w-8 text-right tabular-nums text-muted-foreground">{t.avg}%</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Correlation */}
+      {hasCorrelation && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <SparklesIcon className="size-4 text-primary" />
+              Mood vs. Daily Habits
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {exWith !== null && exWithout !== null && (
+              <div className="space-y-1">
+                <p className="text-xs font-medium">Exercise</p>
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="w-20 text-muted-foreground">With 🏃</span>
+                  <div className="flex-1 rounded-full bg-muted h-2">
+                    <div className="h-2 rounded-full bg-green-500" style={{ width: `${exWith}%` }} />
+                  </div>
+                  <span className="w-8 text-right tabular-nums">{exWith}%</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="w-20 text-muted-foreground">Without 🛋️</span>
+                  <div className="flex-1 rounded-full bg-muted h-2">
+                    <div className="h-2 rounded-full bg-muted-foreground/50" style={{ width: `${exWithout}%` }} />
+                  </div>
+                  <span className="w-8 text-right tabular-nums">{exWithout}%</span>
+                </div>
+                {exWith > exWithout + 3 && <p className="text-[11px] text-green-600 dark:text-green-400">You feel better on days you exercise.</p>}
+              </div>
+            )}
+            {sleepGood !== null && sleepPoor !== null && (
+              <div className="space-y-1">
+                <p className="text-xs font-medium">Sleep</p>
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="w-20 text-muted-foreground">7h+ 😴</span>
+                  <div className="flex-1 rounded-full bg-muted h-2">
+                    <div className="h-2 rounded-full bg-blue-500" style={{ width: `${sleepGood}%` }} />
+                  </div>
+                  <span className="w-8 text-right tabular-nums">{sleepGood}%</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="w-20 text-muted-foreground">Under 7h 😵</span>
+                  <div className="flex-1 rounded-full bg-muted h-2">
+                    <div className="h-2 rounded-full bg-muted-foreground/50" style={{ width: `${sleepPoor}%` }} />
+                  </div>
+                  <span className="w-8 text-right tabular-nums">{sleepPoor}%</span>
+                </div>
+                {sleepGood > sleepPoor + 3 && <p className="text-[11px] text-blue-600 dark:text-blue-400">Good sleep noticeably lifts your mood.</p>}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  )
+}
+
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export function Dashboard() {
@@ -298,12 +452,17 @@ export function Dashboard() {
   const [weeklyStats, setWeeklyStats] = useState<PeriodStats | null>(null)
   const [monthlyStats, setMonthlyStats] = useState<PeriodStats | null>(null)
   const [streak, setStreak] = useState(0)
+  const [allEntries, setAllEntries] = useState<LocalMoodEntry[]>([])
+  const [factors, setFactors] = useState<LocalDailyFactor[]>([])
 
   useEffect(() => {
+    const month = getMonthEntries()
     setDailyStats(buildStats(getTodayEntries(), 'hour'))
     setWeeklyStats(buildStats(getWeekEntries(), 'day'))
-    setMonthlyStats(buildStats(getMonthEntries(), 'day'))
+    setMonthlyStats(buildStats(month, 'day'))
     setStreak(getStreak())
+    setAllEntries(month)
+    setFactors(getRecentFactors(30))
   }, [])
 
   return (
@@ -345,6 +504,8 @@ export function Dashboard() {
           <Card><CardContent className="pt-5"><MoodCalendar /></CardContent></Card>
         </TabsContent>
       </Tabs>
+
+      <InsightsSection entries={allEntries} factors={factors} />
     </div>
   )
 }

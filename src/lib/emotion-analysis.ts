@@ -68,6 +68,11 @@ const emotionInsights: Record<Emotion, string[]> = {
   ]
 }
 
+export function getInsightForEmotion(emotion: Emotion): string {
+  const insights = emotionInsights[emotion]
+  return insights[Math.floor(Math.random() * insights.length)]
+}
+
 export function analyzeEmotion(text: string): EmotionAnalysisResult {
   const lowerText = text.toLowerCase()
   const emotionScores: Record<Emotion, number> = {

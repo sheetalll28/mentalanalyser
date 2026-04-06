@@ -109,6 +109,16 @@ export function getStreak(): number {
   return streak
 }
 
+// ── Onboarding ────────────────────────────────────────────────────────────────
+
+export function isOnboarded(): boolean {
+  return localStorage.getItem('serenity_onboarded') === 'true'
+}
+
+export function setOnboarded(): void {
+  localStorage.setItem('serenity_onboarded', 'true')
+}
+
 // ── Daily Factors ─────────────────────────────────────────────────────────────
 
 export function getDailyFactors(): LocalDailyFactor[] {
