@@ -1,5 +1,5 @@
 import { analyzeEmotion, getChatbotResponse, getInsightForEmotion, type Emotion, type EmotionAnalysisResult } from './emotion-analysis'
-import type { MoodEntry } from './supabase'
+import type { MoodEntry } from './storage'
 import { generateSummaryFromEntries } from './summarization'
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY
@@ -150,8 +150,13 @@ export async function getChatResponseFromGemini(
   history: Array<{ role: 'user' | 'assistant'; content: string }>,
   userMessage: string
 ): Promise<string> {
+  // Gemini requires the first message in contents to be from 'user'.
+  // Drop leading assistant messages (e.g. the welcome message) before building contents.
+  const trimmed = [...history]
+  while (trimmed.length > 0 && trimmed[0].role === 'assistant') trimmed.shift()
+
   const contents: GContent[] = [
-    ...history.map(m => ({
+    ...trimmed.map(m => ({
       role: (m.role === 'assistant' ? 'model' : 'user') as 'user' | 'model',
       parts: [{ text: m.content }] as [{ text: string }],
     })),

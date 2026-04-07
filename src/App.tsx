@@ -8,6 +8,7 @@ import { Navigation } from '@/components/navigation'
 import { ModeToggle } from '@/components/mode-toggle'
 import { Onboarding } from '@/components/onboarding'
 import { Sparkles as SparklesIcon } from 'lucide-react'
+import { Toaster } from '@/components/ui/sonner'
 import { isOnboarded } from '@/lib/storage'
 
 type Page = 'mood' | 'chat' | 'dashboard' | 'factors' | 'summary'
@@ -53,6 +54,7 @@ export function App() {
 
       <Navigation currentPage={currentPage} onPageChange={handlePageChange} />
       {showOnboarding && <Onboarding onDone={() => setShowOnboarding(false)} />}
+      <Toaster richColors position="top-center" />
     </div>
   )
 }

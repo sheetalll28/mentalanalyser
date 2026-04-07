@@ -1,4 +1,4 @@
-import type { MoodEntry } from './supabase'
+import type { MoodEntry } from './storage'
 
 interface SummaryData {
   dominant_emotion: string

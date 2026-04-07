@@ -3,7 +3,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
-import { Sparkles as SparklesIcon, Brain as BrainIcon, Scan as ScanIcon, Mic, Square, RefreshCw, RotateCcw } from 'lucide-react'
+import { Sparkles as SparklesIcon, Brain as BrainIcon, Scan as ScanIcon, Mic, Square, RefreshCw, RotateCcw, Trash2 } from 'lucide-react'
 import { type EmotionAnalysisResult, type Emotion } from '@/lib/emotion-analysis'
 import { analyzeEmotionWithGemini, getQuickInsightFromGemini } from '@/lib/gemini'
 import { addMoodEntry } from '@/lib/storage'
@@ -69,15 +69,17 @@ export function MoodEntry() {
   const [result, setResult] = useState<EmotionAnalysisResult | null>(null)
   const [isRecording, setIsRecording] = useState(false)
   const [recordingTime, setRecordingTime] = useState(0)
+  const [interimText, setInterimText] = useState('')
+  const [voiceSupported, setVoiceSupported] = useState(true)
   const [promptIndex, setPromptIndex] = useState(() => {
     const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86_400_000)
     return dayOfYear % DAILY_PROMPTS.length
   })
 
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const recognitionRef = useRef<any>(null)
-  const audioChunksRef = useRef<Blob[]>([])
+  const isRecordingRef = useRef(false)
   const recordingIntervalRef = useRef<number | null>(null)
+  const silenceTimerRef = useRef<number | null>(null)
 
   const analysisSteps = [
     { icon: ScanIcon, text: 'Reading your entry...' },
@@ -88,74 +90,106 @@ export function MoodEntry() {
   const wordCount = entryText.trim().split(/\s+/).filter(Boolean).length
   const tooShort = wordCount > 0 && wordCount < 5
 
-  // ── Speech recognition setup ──────────────────────────────────────────────
+  // ── Speech recognition — one-time setup ──────────────────────────────────
 
   useEffect(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (!SpeechRecognition) return
+    if (!SpeechRecognition) { setVoiceSupported(false); return }
 
-    recognitionRef.current = new SpeechRecognition()
-    recognitionRef.current.continuous = true
-    recognitionRef.current.interimResults = true
-    recognitionRef.current.lang = 'en-US'
+    const recognition = new SpeechRecognition()
+    recognition.continuous = true
+    recognition.interimResults = true
+    recognition.lang = 'en-US'
+    recognitionRef.current = recognition
 
-    recognitionRef.current.onresult = (event: any) => {
-      let finalTranscript = ''
+    recognition.onresult = (event: any) => {
+      let interim = ''
+      let final = ''
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript + ' '
+        if (event.results[i].isFinal) {
+          final += event.results[i][0].transcript + ' '
+        } else {
+          interim += event.results[i][0].transcript
+        }
       }
-      if (finalTranscript) setEntryText(prev => prev + finalTranscript)
+      if (final) {
+        setEntryText(prev => prev + final)
+        setInterimText('')
+        // Reset silence timer on new final word
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
+        silenceTimerRef.current = window.setTimeout(() => {
+          if (isRecordingRef.current) stopRecording(true)
+        }, 8000) // auto-stop after 8s of silence
+      } else {
+        setInterimText(interim)
+      }
     }
 
-    recognitionRef.current.onerror = (event: any) => {
-      if (event.error !== 'no-speech') toast.error('Speech recognition error: ' + event.error)
-      stopRecording()
+    recognition.onerror = (event: any) => {
+      const msgs: Record<string, string> = {
+        'not-allowed': 'Microphone access denied — allow it in browser settings.',
+        'audio-capture': 'No microphone found on this device.',
+        'network': 'Network error during speech recognition.',
+        'aborted': '',
+        'no-speech': '',
+      }
+      const msg = msgs[event.error]
+      if (msg) toast.error(msg)
+      if (!['no-speech', 'aborted'].includes(event.error)) stopRecording(false)
     }
 
-    recognitionRef.current.onend = () => {
-      if (isRecording) { try { recognitionRef.current?.start() } catch { } }
+    // Restart recognition automatically when it ends (browser cuts it off after ~60s)
+    recognition.onend = () => {
+      if (isRecordingRef.current) {
+        try { recognition.start() } catch { }
+      }
     }
 
     return () => {
-      recognitionRef.current?.stop()
+      recognition.stop()
       if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current)
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
     }
-  }, [isRecording])
+  }, []) // runs once on mount only
 
   // ── Recording ─────────────────────────────────────────────────────────────
 
+  const stopRecording = (autoStopped = false) => {
+    isRecordingRef.current = false
+    setIsRecording(false)
+    setInterimText('')
+    if (recordingIntervalRef.current) { clearInterval(recordingIntervalRef.current); recordingIntervalRef.current = null }
+    if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null }
+    try { recognitionRef.current?.stop() } catch { }
+    if (autoStopped) toast.info('Stopped listening — no speech detected.')
+  }
+
   const startRecording = async () => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (!SpeechRecognition) {
-      toast.error('Speech recognition is not supported. Please use Chrome or Edge.')
+    if (!voiceSupported) {
+      toast.error('Speech recognition not supported. Use Chrome or Edge.')
       return
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      setIsRecording(true)
-      setRecordingTime(0)
-      audioChunksRef.current = []
-      recordingIntervalRef.current = window.setInterval(() => setRecordingTime(t => t + 1), 1000)
-      mediaRecorderRef.current = new MediaRecorder(stream)
-      mediaRecorderRef.current.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data) }
-      mediaRecorderRef.current.start()
-      recognitionRef.current?.start()
-      toast.success('Recording started. Speak now!')
+      await navigator.mediaDevices.getUserMedia({ audio: true })
     } catch {
-      toast.error('Failed to access microphone. Please grant permission.')
-      setIsRecording(false)
+      toast.error('Microphone access denied — allow it in browser settings.')
+      return
+    }
+    setIsRecording(true)
+    setRecordingTime(0)
+    setInterimText('')
+    isRecordingRef.current = true
+    recordingIntervalRef.current = window.setInterval(() => setRecordingTime(t => t + 1), 1000)
+    try {
+      recognitionRef.current?.start()
+    } catch {
+      // Already started — ignore
     }
   }
 
-  const stopRecording = () => {
-    setIsRecording(false)
-    if (recordingIntervalRef.current) { clearInterval(recordingIntervalRef.current); recordingIntervalRef.current = null }
-    recognitionRef.current?.stop()
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop()
-      mediaRecorderRef.current.stream.getTracks().forEach(t => t.stop())
-    }
-    toast.success('Recording stopped')
+  const clearVoiceText = () => {
+    setEntryText('')
+    setInterimText('')
   }
 
   const formatTime = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`
@@ -285,26 +319,54 @@ export function MoodEntry() {
           </div>
 
           {/* Voice controls */}
-          {!isRecording ? (
+          {!voiceSupported ? (
+            <div className="rounded-lg border border-dashed p-3 text-center text-xs text-muted-foreground">
+              Voice input requires Chrome or Edge browser.
+            </div>
+          ) : !isRecording ? (
             <Button onClick={startRecording} disabled={isAnalyzing} variant="outline" className="w-full" size="lg">
               <Mic className="mr-2 h-4 w-4" />
               Start Voice Input
             </Button>
           ) : (
-            <Button onClick={stopRecording} variant="destructive" className="w-full" size="lg">
-              <Square className="mr-2 h-4 w-4 fill-current" />
-              Stop Recording ({formatTime(recordingTime)})
-            </Button>
-          )}
-
-          {isRecording && (
-            <div className="flex items-center justify-center gap-2 rounded-lg bg-red-50 p-3 dark:bg-red-950/20">
-              <div className="flex gap-1">
-                {[0, 150, 300].map(delay => (
-                  <div key={delay} className="h-3 w-1 animate-pulse rounded-full bg-red-500" style={{ animationDelay: `${delay}ms` }} />
-                ))}
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <Button onClick={() => stopRecording(false)} variant="destructive" className="flex-1" size="lg">
+                  <Square className="mr-2 h-4 w-4 fill-current" />
+                  Stop ({formatTime(recordingTime)})
+                </Button>
+                {entryText && (
+                  <Button onClick={clearVoiceText} variant="outline" size="lg" title="Clear transcript">
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
               </div>
-              <span className="text-sm font-medium text-red-600 dark:text-red-400">Listening...</span>
+
+              {/* Live feedback */}
+              <div className="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-800 dark:bg-red-950/20">
+                <div className="flex items-center gap-2 mb-1">
+                  <div className="flex gap-0.5">
+                    {[0, 100, 200, 300, 400].map(delay => (
+                      <div
+                        key={delay}
+                        className="w-0.5 rounded-full bg-red-500 animate-[soundwave_0.8s_ease-in-out_infinite]"
+                        style={{
+                          animationDelay: `${delay}ms`,
+                          height: `${8 + Math.sin(delay) * 4}px`,
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <span className="text-xs font-medium text-red-600 dark:text-red-400">Listening — speak naturally</span>
+                </div>
+                {interimText && (
+                  <p className="text-xs text-muted-foreground italic mt-1 leading-relaxed">
+                    {interimText}
+                    <span className="inline-block w-0.5 h-3 bg-red-400 ml-0.5 animate-pulse align-middle" />
+                  </p>
+                )}
+                <p className="text-[10px] text-muted-foreground/60 mt-1">Auto-stops after 8s of silence</p>
+              </div>
             </div>
           )}
 

@@ -1,4 +1,11 @@
-import type { MoodEntry } from './supabase'
+export type MoodEntry = {
+  id: string
+  entry_text: string
+  emotion: string
+  confidence: number
+  insight: string
+  created_at: string
+}
 
 const KEYS = {
   MOOD_ENTRIES: 'serenity_mood_entries',
@@ -6,7 +13,7 @@ const KEYS = {
   DAILY_FACTORS: 'serenity_daily_factors',
 }
 
-export type LocalMoodEntry = MoodEntry & { user_id: 'local' }
+export type LocalMoodEntry = MoodEntry
 
 export type ChatMessage = {
   role: 'user' | 'assistant'
@@ -47,9 +54,9 @@ export function getMoodEntries(): LocalMoodEntry[] {
   return readJSON<LocalMoodEntry>(KEYS.MOOD_ENTRIES)
 }
 
-export function addMoodEntry(entry: Omit<LocalMoodEntry, 'user_id'>): void {
+export function addMoodEntry(entry: LocalMoodEntry): void {
   const entries = getMoodEntries()
-  entries.push({ ...entry, user_id: 'local' })
+  entries.push(entry)
   writeJSON(KEYS.MOOD_ENTRIES, entries)
 }
 
