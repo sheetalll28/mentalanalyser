@@ -17,9 +17,10 @@ import {
   getTodayFactor, getRecentFactors, deleteMoodEntry,
   type LocalMoodEntry, type ChatSession, type LocalDailyFactor,
 } from '@/lib/storage'
-import { generateSummaryFromEntries } from '@/lib/summarization'
+import { generateSummaryFromEntries, calculateWellbeingIndex } from '@/lib/summarization'
 import { generateNarrativeWithGemini } from '@/lib/gemini'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Heart as HeartIcon } from 'lucide-react'
 
 const emotionEmojis: Record<string, string> = {
   happy: '😊', sad: '😢', anxious: '😰', calm: '😌',
@@ -129,6 +130,162 @@ function FactorsHistoryPanel({ factors }: { factors: LocalDailyFactor[] }) {
 }
 
 const ALL_EMOTIONS = ['happy', 'calm', 'excited', 'neutral', 'anxious', 'tired', 'stressed', 'sad']
+
+// ── Wellbeing Index Card ──────────────────────────────────────────────────────
+
+function WellbeingCard({ entries, factors, trend, emotionDistribution, label }: {
+  entries: LocalMoodEntry[]
+  factors: LocalDailyFactor[]
+  trend: string
+  emotionDistribution: Record<string, number>
+  label: string
+}) {
+  if (entries.length === 0 && factors.length === 0) return null
+
+  const wellbeing = calculateWellbeingIndex(entries, factors, trend, emotionDistribution)
+  const { wellbeingIndex, sleepQuality, moodScore, activityLevel, therapyRecommendation } = wellbeing
+
+  // Color based on wellbeing index
+  let indexColor = 'text-red-600 dark:text-red-400'
+  let indexBgColor = 'bg-red-500/10'
+  if (wellbeingIndex >= 70) {
+    indexColor = 'text-green-600 dark:text-green-400'
+    indexBgColor = 'bg-green-500/10'
+  } else if (wellbeingIndex >= 50) {
+    indexColor = 'text-amber-600 dark:text-amber-400'
+    indexBgColor = 'bg-amber-500/10'
+  }
+
+  return (
+    <Card className={`border-2 ${indexBgColor}`}>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <HeartIcon className={`size-5 ${indexColor}`} />
+          Weekly Wellbeing Index
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Main Wellbeing Score */}
+        <div className="flex items-center justify-between rounded-lg bg-muted/50 p-4">
+          <div>
+            <p className="text-sm text-muted-foreground mb-1">Overall Wellbeing</p>
+            <p className={`text-3xl font-bold tabular-nums ${indexColor}`}>{wellbeingIndex}</p>
+            <p className="text-xs text-muted-foreground mt-1">out of 100</p>
+          </div>
+          <div className="text-right">
+            <div className="w-20 h-20 rounded-full flex items-center justify-center" style={{
+              background: `conic-gradient(currentColor 0deg ${wellbeingIndex * 3.6}deg, transparent ${wellbeingIndex * 3.6}deg)`,
+            }} className={indexColor}>
+              <div className="w-16 h-16 rounded-full bg-background flex items-center justify-center">
+                <span className={`text-xl font-bold ${indexColor}`}>{wellbeingIndex}%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Component Scores */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="rounded-lg bg-blue-500/10 p-3">
+            <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+              <MoonIcon className="size-3 text-blue-600 dark:text-blue-400" />
+              Sleep Quality
+            </p>
+            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 tabular-nums">{sleepQuality}</p>
+          </div>
+          <div className="rounded-lg bg-purple-500/10 p-3">
+            <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+              <SparklesIcon className="size-3 text-purple-600 dark:text-purple-400" />
+              Mood Score
+            </p>
+            <p className="text-2xl font-bold text-purple-600 dark:text-purple-400 tabular-nums">{moodScore}</p>
+          </div>
+          <div className="rounded-lg bg-green-500/10 p-3">
+            <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+              <ActivityIcon className="size-3 text-green-600 dark:text-green-400" />
+              Activity Level
+            </p>
+            <p className="text-2xl font-bold text-green-600 dark:text-green-400 tabular-nums">{activityLevel}%</p>
+          </div>
+        </div>
+
+        {/* Therapy Recommendations */}
+        {therapyRecommendation.recommended && (
+          <div className={`rounded-lg p-4 border-l-4 ${
+            therapyRecommendation.severity === 'high'
+              ? 'bg-red-500/10 border-l-red-600 dark:border-l-red-400'
+              : therapyRecommendation.severity === 'moderate'
+                ? 'bg-amber-500/10 border-l-amber-600 dark:border-l-amber-400'
+                : 'bg-blue-500/10 border-l-blue-600 dark:border-l-blue-400'
+          }`}>
+            <div className="flex items-start gap-3">
+              <AlertCircleIcon className={`size-5 mt-0.5 shrink-0 ${
+                therapyRecommendation.severity === 'high'
+                  ? 'text-red-600 dark:text-red-400'
+                  : therapyRecommendation.severity === 'moderate'
+                    ? 'text-amber-600 dark:text-amber-400'
+                    : 'text-blue-600 dark:text-blue-400'
+              }`} />
+              <div className="flex-1">
+                <p className="font-medium text-sm mb-2">
+                  {therapyRecommendation.severity === 'high'
+                    ? 'Professional Support Recommended'
+                    : therapyRecommendation.severity === 'moderate'
+                      ? 'Consider Professional Support'
+                      : 'Professional Support Available'}
+                </p>
+
+                {/* Recommended therapy types */}
+                {therapyRecommendation.types.length > 0 && (
+                  <div className="mb-3">
+                    <p className="text-xs font-medium text-muted-foreground mb-2">Recommended approaches:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {therapyRecommendation.types.map(type => (
+                        <Badge key={type} variant={therapyRecommendation.severity === 'high' ? 'default' : 'secondary'} className="text-xs">
+                          {type === 'cognitive-behavioral' && 'Cognitive-Behavioral'}
+                          {type === 'mindfulness' && 'Mindfulness'}
+                          {type === 'psychodynamic' && 'Psychodynamic'}
+                          {type === 'interpersonal' && 'Interpersonal'}
+                          {type === 'supportive' && 'Supportive'}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Reasons */}
+                {therapyRecommendation.reasons.length > 0 && (
+                  <ul className="space-y-1 text-xs text-muted-foreground">
+                    {therapyRecommendation.reasons.map((reason, i) => (
+                      <li key={i} className="flex gap-2">
+                        <span className="text-primary mt-0.5">•</span>
+                        <span>{reason}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Positive message if all is well */}
+        {!therapyRecommendation.recommended && wellbeingIndex >= 70 && (
+          <div className="rounded-lg bg-green-500/10 p-4 border-l-4 border-l-green-600 dark:border-l-green-400">
+            <div className="flex items-start gap-3">
+              <div className="size-5 rounded-full border-2 border-green-600 dark:border-green-400 flex items-center justify-center mt-0.5 shrink-0">
+                <span className="text-xs font-bold text-green-600 dark:text-green-400">✓</span>
+              </div>
+              <div>
+                <p className="font-medium text-sm text-green-700 dark:text-green-300">Great Wellbeing</p>
+                <p className="text-xs text-muted-foreground mt-1">Your overall wellbeing is in a healthy range. Keep maintaining these positive habits!</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
 
 // ── Summary Panel ─────────────────────────────────────────────────────────────
 
@@ -402,11 +559,29 @@ export function WeeklySummary() {
         </TabsContent>
 
         <TabsContent value="weekly" className="mt-4 space-y-4">
+          {weekEntries.length > 0 && (
+            <WellbeingCard
+              entries={weekEntries}
+              factors={weekFactors}
+              trend={generateSummaryFromEntries(weekEntries).trend}
+              emotionDistribution={generateSummaryFromEntries(weekEntries).emotion_distribution}
+              label="Weekly"
+            />
+          )}
           <SummaryPanel entries={weekEntries} label="Week" onDeleted={loadData} />
           <FactorsHistoryPanel factors={weekFactors} />
         </TabsContent>
 
         <TabsContent value="monthly" className="mt-4 space-y-4">
+          {monthEntries.length > 0 && (
+            <WellbeingCard
+              entries={monthEntries}
+              factors={monthFactors}
+              trend={generateSummaryFromEntries(monthEntries).trend}
+              emotionDistribution={generateSummaryFromEntries(monthEntries).emotion_distribution}
+              label="Monthly"
+            />
+          )}
           <SummaryPanel entries={monthEntries} label="Month" onDeleted={loadData} />
           <FactorsHistoryPanel factors={monthFactors} />
         </TabsContent>
