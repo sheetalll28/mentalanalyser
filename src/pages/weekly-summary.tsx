@@ -133,7 +133,7 @@ const ALL_EMOTIONS = ['happy', 'calm', 'excited', 'neutral', 'anxious', 'tired',
 
 // ── Wellbeing Index Card ──────────────────────────────────────────────────────
 
-function WellbeingCard({ entries, factors, trend, emotionDistribution, label }: {
+function WellbeingCard({ entries, factors, trend, emotionDistribution }: {
   entries: LocalMoodEntry[]
   factors: LocalDailyFactor[]
   trend: string
@@ -173,9 +173,12 @@ function WellbeingCard({ entries, factors, trend, emotionDistribution, label }: 
             <p className="text-xs text-muted-foreground mt-1">out of 100</p>
           </div>
           <div className="text-right">
-            <div className="w-20 h-20 rounded-full flex items-center justify-center" style={{
-              background: `conic-gradient(currentColor 0deg ${wellbeingIndex * 3.6}deg, transparent ${wellbeingIndex * 3.6}deg)`,
-            }} className={indexColor}>
+            <div 
+              className={`w-20 h-20 rounded-full flex items-center justify-center ${indexColor}`} 
+              style={{
+                background: `conic-gradient(currentColor 0deg ${wellbeingIndex * 3.6}deg, transparent ${wellbeingIndex * 3.6}deg)`,
+              }}
+            >
               <div className="w-16 h-16 rounded-full bg-background flex items-center justify-center">
                 <span className={`text-xl font-bold ${indexColor}`}>{wellbeingIndex}%</span>
               </div>
